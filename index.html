@@ -12,7 +12,7 @@
       --text: #f2f6ff;
       --accent: #b6ff3b;
       --border: rgba(255,255,255,.04);
-      /* actual height of fixed header (title + tabs + search) */
+      /* height of header (title + tabs + search) */
       --header-h: 134px;
     }
     * { box-sizing: border-box; }
@@ -37,7 +37,13 @@
       backdrop-filter: blur(16px);
       border-bottom: 1px solid rgba(255,255,255,.03);
       padding: .75rem 1rem .6rem;
+      transition: transform .25s ease;
     }
+    /* when hidden, slide header up */
+    body.header-hidden header {
+      transform: translateY(calc(-1 * var(--header-h)));
+    }
+
     .title {
       font-size: 1.05rem;
       font-weight: 700;
@@ -84,11 +90,15 @@
     main {
       max-width: 1180px;
       margin: 0 auto;
-      /* push content below fixed header */
       padding: calc(var(--header-h) + 1rem) 1rem 7rem;
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
       gap: 1rem;
+      transition: padding-top .25s ease;
+    }
+    /* when header hidden, pull content up */
+    body.header-hidden main {
+      padding-top: 1rem;
     }
 
     .card {
@@ -164,6 +174,24 @@
       font-size: .7rem;
     }
 
+    /* header toggle button */
+    #toggleHeader {
+      position: fixed;
+      top: .85rem;
+      right: 1rem;
+      z-index: 200;
+      background: rgba(0,0,0,.35);
+      border: 1px solid rgba(255,255,255,.1);
+      border-radius: 999px;
+      padding: .35rem .7rem;
+      font-size: .65rem;
+      cursor: pointer;
+      display: flex;
+      gap: .35rem;
+      align-items: center;
+      backdrop-filter: blur(4px);
+    }
+
     /* scrollbar */
     ::-webkit-scrollbar {
       width: 12px;
@@ -189,6 +217,9 @@
         gap: .75rem;
         grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
       }
+      body.header-hidden main {
+        padding-top: .75rem;
+      }
       header { padding: .6rem .7rem .45rem; }
     }
     @media (max-width: 560px) {
@@ -211,6 +242,9 @@
     </div>
   </header>
 
+  <!-- toggle for header -->
+  <button id="toggleHeader" type="button">Hide UI</button>
+
   <main id="feed"></main>
 
   <div class="fade-bottom"></div>
@@ -224,10 +258,14 @@
       { name: "NVDA", url: "https://feeds.finance.yahoo.com/rss/2.0/headline?s=NVDA&region=US&lang=en-US" },
       { name: "TSLA", url: "https://feeds.finance.yahoo.com/rss/2.0/headline?s=TSLA&region=US&lang=en-US" }
     ];
-    const PODCAST_FEED = {
-      name: "NPR Planet Money",
-      url: "https://feeds.npr.org/510289/podcast.xml"
-    };
+
+    // multiple NPR podcasts
+    const NPR_FEEDS = [
+      { name: "NPR Planet Money",  url: "https://feeds.npr.org/510289/podcast.xml" },
+      { name: "NPR The Indicator", url: "https://feeds.npr.org/510325/podcast.xml" },
+      { name: "NPR Consider This", url: "https://feeds.npr.org/510355/podcast.xml" },
+      { name: "NPR Up First",      url: "https://feeds.npr.org/510318/podcast.xml" }
+    ];
 
     const proxyBuilders = [
       (url) => url,
@@ -239,6 +277,7 @@
     const feedEl = document.getElementById('feed');
     const tabsEl = document.getElementById('tabs');
     const filterInput = document.getElementById('filterInput');
+    const toggleHeaderBtn = document.getElementById('toggleHeader');
 
     function fetchWithTimeout(resource, options = {}) {
       const { timeout = 4000 } = options;
@@ -258,7 +297,9 @@
             return { type: "json", data: await resp.json() };
           }
           return { type: "xml", data: await resp.text() };
-        } catch (e) {}
+        } catch (e) {
+          // try next
+        }
       }
       throw new Error("all fetch methods failed for " + url);
     }
@@ -297,59 +338,85 @@
             date: item.querySelector('pubDate')?.textContent?.trim() || ''
           }));
           all.push(...items);
-        } catch (e) {}
+        } catch (e) {
+          console.warn('market feed failed', mf.name, e);
+        }
       }
       all.sort((a,b)=>new Date(b.date)-new Date(a.date));
       renderList(all);
     }
 
     async function loadPodcasts() {
-      feedEl.innerHTML = '<div class="empty">Loading podcast…</div>';
+      feedEl.innerHTML = '<div class="empty">Loading NPR podcasts…</div>';
+
       try {
-        const { type, data } = await smartFetch(PODCAST_FEED.url);
-        let items = [];
-        if (type === "xml") {
-          const xml = new DOMParser().parseFromString(data, "application/xml");
-          items = [...xml.querySelectorAll('item')].slice(0,6).map(item => ({
-            source: PODCAST_FEED.name,
-            title: item.querySelector('title')?.textContent?.trim() || '',
-            desc: clean(item.querySelector('description')?.textContent || ''),
-            link: item.querySelector('link')?.textContent?.trim() || '#',
-            date: item.querySelector('pubDate')?.textContent?.trim() || '',
-            audio: extractAudio(item)
-          }));
-        } else {
-          items = (data.items || []).slice(0,6).map(ep => ({
-            source: PODCAST_FEED.name,
-            title: ep.title || '',
-            desc: clean(ep.description || ''),
-            link: ep.link || '#',
-            date: ep.pubDate || '',
-            audio: ep.enclosure?.link || ''
-          }));
+        const results = await Promise.allSettled(
+          NPR_FEEDS.map(async (feed) => {
+            const { type, data } = await smartFetch(feed.url);
+            if (type === "xml") {
+              const xml = new DOMParser().parseFromString(data, "application/xml");
+              return [...xml.querySelectorAll("item")].map((item) => ({
+                source: feed.name,
+                title: item.querySelector("title")?.textContent?.trim() || "",
+                desc: clean(item.querySelector("description")?.textContent || ""),
+                link: item.querySelector("link")?.textContent?.trim() || "#",
+                date: item.querySelector("pubDate")?.textContent?.trim() || "",
+                audio: extractAudio(item)
+              }));
+            } else {
+              return (data.items || []).map((ep) => ({
+                source: feed.name,
+                title: ep.title || "",
+                desc: clean(ep.description || ""),
+                link: ep.link || "#",
+                date: ep.pubDate || "",
+                audio: ep.enclosure?.link || ep.enclosure?.url || ""
+              }));
+            }
+          })
+        );
+
+        // flatten only fulfilled ones
+        let episodes = [];
+        results.forEach(r => {
+          if (r.status === "fulfilled" && Array.isArray(r.value)) {
+            episodes = episodes.concat(r.value);
+          }
+        });
+
+        // sort newest first
+        episodes.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+        // limit
+        episodes = episodes.slice(0, 12);
+
+        if (!episodes.length) {
+          feedEl.innerHTML = '<div class="empty">No podcast episodes found.</div>';
+          return;
         }
 
-        feedEl.innerHTML = '';
-        items.forEach(it => {
-          const card = document.createElement('article');
-          card.className = 'card';
+        feedEl.innerHTML = "";
+        episodes.forEach((ep) => {
+          const card = document.createElement("article");
+          card.className = "card";
           card.innerHTML = `
-            <div class="source">${it.source}</div>
-            <a class="title-link" href="${it.link}" target="_blank" rel="noopener noreferrer">${it.title}</a>
-            <div class="desc">${it.desc}</div>
-            <div class="date">${it.date ? new Date(it.date).toLocaleString() : ''}</div>
+            <div class="source">${ep.source}</div>
+            <a class="title-link" href="${ep.link}" target="_blank" rel="noopener noreferrer">${ep.title}</a>
+            <div class="desc">${ep.desc}</div>
+            <div class="date">${ep.date ? new Date(ep.date).toLocaleString() : ""}</div>
           `;
-          if (it.audio) {
-            const audio = document.createElement('audio');
+          if (ep.audio) {
+            const audio = document.createElement("audio");
             audio.controls = true;
-            audio.src = it.audio;
+            audio.src = ep.audio;
             card.appendChild(audio);
           }
           feedEl.appendChild(card);
         });
+
       } catch (e) {
         console.error(e);
-        feedEl.innerHTML = '<div class="empty">Podcast feed could not be loaded.</div>';
+        feedEl.innerHTML = '<div class="empty">Could not load NPR podcasts.</div>';
       }
     }
 
@@ -392,6 +459,7 @@
       });
     }
 
+    // tab switching
     tabsEl.addEventListener('click', (e) => {
       const btn = e.target.closest('.tab-btn');
       if (!btn) return;
@@ -401,6 +469,14 @@
       if (tab === 'news') loadNews();
       if (tab === 'market') loadMarket();
       if (tab === 'podcasts') loadPodcasts();
+    });
+
+    // toggle header
+    toggleHeaderBtn.addEventListener('click', () => {
+      document.body.classList.toggle('header-hidden');
+      toggleHeaderBtn.textContent = document.body.classList.contains('header-hidden')
+        ? 'Show UI'
+        : 'Hide UI';
     });
 
     // initial
