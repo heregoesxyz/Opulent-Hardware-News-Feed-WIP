@@ -96,7 +96,6 @@
       gap: 1rem;
       transition: padding-top .25s ease;
     }
-    /* when header hidden, pull content up */
     body.header-hidden main {
       padding-top: 1rem;
     }
@@ -139,7 +138,7 @@
       color: var(--muted);
     }
 
-    /* make audio players behave in cards */
+    /* tidy podcast players inside cards */
     .card audio {
       width: 100%;
       max-width: 280px;
@@ -205,17 +204,16 @@
       background: rgba(0,0,0,.25);
       border-radius: 999px;
     }
-    /* simple chevrons using borders */
     .chevron {
       width: 10px;
       height: 10px;
       border-right: 2px solid currentColor;
       border-bottom: 2px solid currentColor;
-      transform: rotate(225deg); /* up by default */
+      transform: rotate(225deg);
       transition: transform .2s ease;
     }
     body.header-hidden .chevron {
-      transform: rotate(45deg); /* down when header is hidden */
+      transform: rotate(45deg);
     }
 
     /* scrollbar */
@@ -259,6 +257,7 @@
     <div class="tabs" id="tabs">
       <button class="tab-btn active" data-tab="news">BBC NEWS</button>
       <button class="tab-btn" data-tab="market">YAHOO FINANCE</button>
+      <button class="tab-btn" data-tab="youtube">YOUTUBE</button>
       <button class="tab-btn" data-tab="podcasts">PODCASTS</button>
     </div>
     <div class="searchbar">
@@ -266,7 +265,6 @@
     </div>
   </header>
 
-  <!-- transparent icon over header -->
   <button id="toggleHeader" type="button" aria-label="Toggle header">
     <span class="chevron" aria-hidden="true"></span>
   </button>
@@ -283,6 +281,15 @@
       { name: "AAPL", url: "https://feeds.finance.yahoo.com/rss/2.0/headline?s=AAPL&region=US&lang=en-US" },
       { name: "NVDA", url: "https://feeds.finance.yahoo.com/rss/2.0/headline?s=NVDA&region=US&lang=en-US" },
       { name: "TSLA", url: "https://feeds.finance.yahoo.com/rss/2.0/headline?s=TSLA&region=US&lang=en-US" }
+    ];
+
+    // YouTube channels you asked for
+    const YT_CHANNELS = [
+      { name: "MrBeast",      channel_id: "UCX6OQ3DkcsbYNE6H8uQQuVA" },
+      { name: "T-Series",     channel_id: "UCq-Fj5jknLsUf-MWSy4_brA" },
+      { name: "Cocomelon",    channel_id: "UCbCmjCuTUZos6Inko4u57UQ" },
+      { name: "SET India",    channel_id: "UCpEhnqL0y41EpW2TvWAHD7Q" },
+      { name: "Vlad and Niki",channel_id: "UCvlE5gTbOvjiolFlEm-c_Ow" }
     ];
 
     // NPR podcasts (small set)
@@ -372,6 +379,70 @@
       renderList(all);
     }
 
+    // YouTube loader (for the 5 channels)
+    async function loadYouTube() {
+      feedEl.innerHTML = '<div class="empty">Loading YouTube…</div>';
+
+      const feedUrls = YT_CHANNELS.map(c => ({
+        name: c.name,
+        url: `https://www.youtube.com/feeds/videos.xml?channel_id=${c.channel_id}`
+      }));
+
+      const results = await Promise.all(feedUrls.map(async (f) => {
+        try {
+          const { type, data } = await smartFetch(f.url);
+          if (type === "xml") {
+            const xml = new DOMParser().parseFromString(data, "application/xml");
+            const entries = [...xml.querySelectorAll("entry")].map(entry => ({
+              source: f.name,
+              title: entry.querySelector("title")?.textContent?.trim() || "",
+              desc: entry.querySelector("media\\:description")?.textContent || "",
+              link: entry.querySelector("link")?.getAttribute("href") || "#",
+              date: entry.querySelector("published")?.textContent?.trim() ||
+                    entry.querySelector("updated")?.textContent?.trim() || ""
+            }));
+            return entries;
+          }
+        } catch (e) {
+          console.warn("YouTube feed failed:", f.name, e);
+        }
+        return [];
+      }));
+
+      let videos = results.flat();
+
+      if (!videos.length) {
+        feedEl.innerHTML = '<div class="empty">No videos found.</div>';
+        return;
+      }
+
+      videos.sort((a, b) => new Date(b.date) - new Date(a.date));
+      videos = videos.slice(0, 20);
+
+      // render
+      const q = filterInput.value.trim().toLowerCase();
+      if (q) {
+        videos = videos.filter(v =>
+          v.title.toLowerCase().includes(q) ||
+          v.source.toLowerCase().includes(q) ||
+          v.desc.toLowerCase().includes(q)
+        );
+      }
+
+      feedEl.innerHTML = "";
+      videos.forEach(v => {
+        const card = document.createElement("article");
+        card.className = "card";
+        card.innerHTML = `
+          <div class="source">${v.source}</div>
+          <a class="title-link" href="${v.link}" target="_blank" rel="noopener noreferrer">${v.title}</a>
+          <div class="desc">${clean(v.desc).slice(0, 180)}${v.desc.length > 180 ? "…" : ""}</div>
+          <div class="date">${v.date ? new Date(v.date).toLocaleString() : ""}</div>
+        `;
+        feedEl.appendChild(card);
+      });
+    }
+
     // fetch 1 podcast feed with a tight-ish timeout
     async function fetchPodcastFeed(feed, ms = 3500) {
       const controller = new AbortController();
@@ -412,14 +483,13 @@
     async function loadPodcasts() {
       feedEl.innerHTML = '<div class="empty">Loading NPR podcasts…</div>';
 
-      // fire all at once
       const results = await Promise.all(
         NPR_FEEDS.map((f) => fetchPodcastFeed(f, 3500))
       );
 
       let episodes = results.flat().filter(Boolean);
 
-      // if we'd somehow got nothing, try the first feed alone
+      // fallback to Planet Money if absolutely nothing
       if (!episodes.length) {
         const pm = await fetchPodcastFeed(NPR_FEEDS[0], 4000);
         episodes = pm;
@@ -501,6 +571,7 @@
       const tab = btn.dataset.tab;
       if (tab === 'news') loadNews();
       if (tab === 'market') loadMarket();
+      if (tab === 'youtube') loadYouTube();
       if (tab === 'podcasts') loadPodcasts();
     });
 
