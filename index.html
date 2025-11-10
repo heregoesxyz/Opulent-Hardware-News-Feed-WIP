@@ -12,7 +12,7 @@
       --text: #f2f6ff;
       --accent: #b6ff3b;
       --border: rgba(255,255,255,.04);
-      /* height of header (title + tabs + search) */
+      /* header height: title + tabs + search */
       --header-h: 134px;
     }
     * { box-sizing: border-box; }
@@ -39,7 +39,7 @@
       padding: .75rem 1rem .6rem;
       transition: transform .25s ease;
     }
-    /* when hidden, slide header up */
+    /* slide header out of view */
     body.header-hidden header {
       transform: translateY(calc(-1 * var(--header-h)));
     }
@@ -174,22 +174,38 @@
       font-size: .7rem;
     }
 
-    /* header toggle button */
+    /* overlay header toggle icon */
     #toggleHeader {
       position: fixed;
-      top: .85rem;
-      right: 1rem;
+      top: .6rem;
+      right: .65rem;
       z-index: 200;
-      background: rgba(0,0,0,.35);
-      border: 1px solid rgba(255,255,255,.1);
-      border-radius: 999px;
-      padding: .35rem .7rem;
-      font-size: .65rem;
+      background: rgba(0,0,0,0);
+      border: none;
       cursor: pointer;
-      display: flex;
-      gap: .35rem;
-      align-items: center;
-      backdrop-filter: blur(4px);
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      color: rgba(242,246,255,.5);
+      transition: color .2s ease, background .2s ease;
+    }
+    #toggleHeader:hover {
+      color: rgba(242,246,255,.95);
+      background: rgba(0,0,0,.25);
+      border-radius: 999px;
+    }
+    /* simple chevrons using borders */
+    .chevron {
+      width: 10px;
+      height: 10px;
+      border-right: 2px solid currentColor;
+      border-bottom: 2px solid currentColor;
+      transform: rotate(225deg); /* up by default */
+      transition: transform .2s ease;
+    }
+    body.header-hidden .chevron {
+      transform: rotate(45deg); /* down when header is hidden */
     }
 
     /* scrollbar */
@@ -217,9 +233,7 @@
         gap: .75rem;
         grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
       }
-      body.header-hidden main {
-        padding-top: .75rem;
-      }
+      body.header-hidden main { padding-top: .75rem; }
       header { padding: .6rem .7rem .45rem; }
     }
     @media (max-width: 560px) {
@@ -242,8 +256,10 @@
     </div>
   </header>
 
-  <!-- toggle for header -->
-  <button id="toggleHeader" type="button">Hide UI</button>
+  <!-- transparent icon over header -->
+  <button id="toggleHeader" type="button" aria-label="Toggle header">
+    <span class="chevron" aria-hidden="true"></span>
+  </button>
 
   <main id="feed"></main>
 
@@ -259,9 +275,9 @@
       { name: "TSLA", url: "https://feeds.finance.yahoo.com/rss/2.0/headline?s=TSLA&region=US&lang=en-US" }
     ];
 
-    // multiple NPR podcasts
+    // sequential podcast sources
     const NPR_FEEDS = [
-      { name: "NPR Planet Money",  url: "https://feeds.npr.org/510289/podcast.xml" },
+      { name: "NPR Planet Money",  url: "https://feeds.npr.org/510289/podcast.xml" },  // keep first as guaranteed
       { name: "NPR The Indicator", url: "https://feeds.npr.org/510325/podcast.xml" },
       { name: "NPR Consider This", url: "https://feeds.npr.org/510355/podcast.xml" },
       { name: "NPR Up First",      url: "https://feeds.npr.org/510318/podcast.xml" }
@@ -346,78 +362,73 @@
       renderList(all);
     }
 
+    // SEQUENTIAL, TOLERANT NPR LOADER
     async function loadPodcasts() {
       feedEl.innerHTML = '<div class="empty">Loading NPR podcasts…</div>';
 
-      try {
-        const results = await Promise.allSettled(
-          NPR_FEEDS.map(async (feed) => {
-            const { type, data } = await smartFetch(feed.url);
-            if (type === "xml") {
-              const xml = new DOMParser().parseFromString(data, "application/xml");
-              return [...xml.querySelectorAll("item")].map((item) => ({
-                source: feed.name,
-                title: item.querySelector("title")?.textContent?.trim() || "",
-                desc: clean(item.querySelector("description")?.textContent || ""),
-                link: item.querySelector("link")?.textContent?.trim() || "#",
-                date: item.querySelector("pubDate")?.textContent?.trim() || "",
-                audio: extractAudio(item)
-              }));
-            } else {
-              return (data.items || []).map((ep) => ({
-                source: feed.name,
-                title: ep.title || "",
-                desc: clean(ep.description || ""),
-                link: ep.link || "#",
-                date: ep.pubDate || "",
-                audio: ep.enclosure?.link || ep.enclosure?.url || ""
-              }));
-            }
-          })
-        );
+      const episodes = [];
 
-        // flatten only fulfilled ones
-        let episodes = [];
-        results.forEach(r => {
-          if (r.status === "fulfilled" && Array.isArray(r.value)) {
-            episodes = episodes.concat(r.value);
+      for (const feed of NPR_FEEDS) {
+        try {
+          const { type, data } = await smartFetch(feed.url);
+          let items = [];
+          if (type === "xml") {
+            const xml = new DOMParser().parseFromString(data, "application/xml");
+            items = [...xml.querySelectorAll("item")].map((item) => ({
+              source: feed.name,
+              title: item.querySelector("title")?.textContent?.trim() || "",
+              desc: clean(item.querySelector("description")?.textContent || ""),
+              link: item.querySelector("link")?.textContent?.trim() || "#",
+              date: item.querySelector("pubDate")?.textContent?.trim() || "",
+              audio: extractAudio(item)
+            }));
+          } else {
+            items = (data.items || []).map((ep) => ({
+              source: feed.name,
+              title: ep.title || "",
+              desc: clean(ep.description || ""),
+              link: ep.link || "#",
+              date: ep.pubDate || "",
+              audio: ep.enclosure?.link || ep.enclosure?.url || ""
+            }));
           }
-        });
-
-        // sort newest first
-        episodes.sort((a, b) => new Date(b.date) - new Date(a.date));
-
-        // limit
-        episodes = episodes.slice(0, 12);
-
-        if (!episodes.length) {
-          feedEl.innerHTML = '<div class="empty">No podcast episodes found.</div>';
-          return;
+          episodes.push(...items);
+        } catch (e) {
+          console.warn("Podcast feed failed:", feed.name, e);
+          // continue to next feed
         }
-
-        feedEl.innerHTML = "";
-        episodes.forEach((ep) => {
-          const card = document.createElement("article");
-          card.className = "card";
-          card.innerHTML = `
-            <div class="source">${ep.source}</div>
-            <a class="title-link" href="${ep.link}" target="_blank" rel="noopener noreferrer">${ep.title}</a>
-            <div class="desc">${ep.desc}</div>
-            <div class="date">${ep.date ? new Date(ep.date).toLocaleString() : ""}</div>
-          `;
-          if (ep.audio) {
-            const audio = document.createElement("audio");
-            audio.controls = true;
-            audio.src = ep.audio;
-            card.appendChild(audio);
-          }
-          feedEl.appendChild(card);
-        });
-
-      } catch (e) {
-        console.error(e);
-        feedEl.innerHTML = '<div class="empty">Could not load NPR podcasts.</div>';
       }
+
+      // ensure we have at least something (Planet Money is first in array so we already tried it)
+      if (!episodes.length) {
+        feedEl.innerHTML = '<div class="empty">No podcast episodes found.</div>';
+        return;
+      }
+
+      // sort by date desc
+      episodes.sort((a,b) => new Date(b.date) - new Date(a.date));
+
+      // limit
+      const top = episodes.slice(0, 12);
+
+      feedEl.innerHTML = "";
+      top.forEach((ep) => {
+        const card = document.createElement("article");
+        card.className = "card";
+        card.innerHTML = `
+          <div class="source">${ep.source}</div>
+          <a class="title-link" href="${ep.link}" target="_blank" rel="noopener noreferrer">${ep.title}</a>
+          <div class="desc">${ep.desc}</div>
+          <div class="date">${ep.date ? new Date(ep.date).toLocaleString() : ""}</div>
+        `;
+        if (ep.audio) {
+          const audio = document.createElement("audio");
+          audio.controls = true;
+          audio.src = ep.audio;
+          card.appendChild(audio);
+        }
+        feedEl.appendChild(card);
+      });
     }
 
     function extractAudio(item) {
@@ -471,12 +482,9 @@
       if (tab === 'podcasts') loadPodcasts();
     });
 
-    // toggle header
+    // overlay icon toggle
     toggleHeaderBtn.addEventListener('click', () => {
       document.body.classList.toggle('header-hidden');
-      toggleHeaderBtn.textContent = document.body.classList.contains('header-hidden')
-        ? 'Show UI'
-        : 'Hide UI';
     });
 
     // initial
