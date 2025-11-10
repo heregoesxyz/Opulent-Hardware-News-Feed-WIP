@@ -39,7 +39,6 @@
       padding: .75rem 1rem .6rem;
       transition: transform .25s ease;
     }
-    /* slide header out of view */
     body.header-hidden header {
       transform: translateY(calc(-1 * var(--header-h)));
     }
@@ -283,16 +282,23 @@
       { name: "TSLA", url: "https://feeds.finance.yahoo.com/rss/2.0/headline?s=TSLA&region=US&lang=en-US" }
     ];
 
-    // YouTube channels you asked for
+    /* your creators */
     const YT_CHANNELS = [
-      { name: "MrBeast",      channel_id: "UCX6OQ3DkcsbYNE6H8uQQuVA" },
-      { name: "T-Series",     channel_id: "UCq-Fj5jknLsUf-MWSy4_brA" },
-      { name: "Cocomelon",    channel_id: "UCbCmjCuTUZos6Inko4u57UQ" },
-      { name: "SET India",    channel_id: "UCpEhnqL0y41EpW2TvWAHD7Q" },
-      { name: "Vlad and Niki",channel_id: "UCvlE5gTbOvjiolFlEm-c_Ow" }
+      { name: "itsLenabee",                 channel_id: "UCeCOatE7PJIIce5-ekbtbbw" },
+      { name: "random callsign",            channel_id: "UC1hoWeqSuf03UgeABeR2U3g" },
+      { name: "GamerMuscleVideos",          channel_id: "UC69aRMKDNmaruRhBQ-_wyqw" },
+      { name: "yuyuyuly",                   channel_id: "UCgjH88QC7TDfn_u9jcL8tBw" },
+      { name: "Bitwit",                     channel_id: "UCftcLVz-jtPXoH3cWUUDwYw" },
+      { name: "SilencedTech",               channel_id: "UCqkjL0pwKQTz1oujPqM1qJQ" },
+      { name: "USSA: Woodworking+3D",       channel_id: "UCUzWCK7K8Q--AyJnIyD6Fyw" },
+      { name: "The Simpit",                 channel_id: "UCqnakdO0DZ7w3ne7-EmaW7w" },
+      { name: "Jimmy Broadbent",            channel_id: "UCq-ylUNa9RoTK5jr6TBOYag" },
+      { name: "Project Sim Racing",         channel_id: "UCA49ktWnaAdxGJHFSFirLbQ" },
+      { name: "FORMULA 1",                  channel_id: "UCB_qr75-ydFVKSF9Dmo6izg" },
+      { name: "LRN2DIY",                    channel_id: "UCPKAKrjoMz7POptCloy7AIQ" }
     ];
 
-    // NPR podcasts (small set)
+    // NPR podcasts
     const NPR_FEEDS = [
       { name: "NPR Planet Money",  url: "https://feeds.npr.org/510289/podcast.xml" },
       { name: "NPR The Indicator", url: "https://feeds.npr.org/510325/podcast.xml" },
@@ -330,9 +336,7 @@
             return { type: "json", data: await resp.json() };
           }
           return { type: "xml", data: await resp.text() };
-        } catch (e) {
-          // try next
-        }
+        } catch (e) { /* try next */ }
       }
       throw new Error("all fetch methods failed for " + url);
     }
@@ -379,7 +383,7 @@
       renderList(all);
     }
 
-    // YouTube loader (for the 5 channels)
+    // YouTube loader for your 12 channels
     async function loadYouTube() {
       feedEl.innerHTML = '<div class="empty">Loading YouTube…</div>';
 
@@ -417,9 +421,8 @@
       }
 
       videos.sort((a, b) => new Date(b.date) - new Date(a.date));
-      videos = videos.slice(0, 20);
+      videos = videos.slice(0, 24);
 
-      // render
       const q = filterInput.value.trim().toLowerCase();
       if (q) {
         videos = videos.filter(v =>
@@ -443,7 +446,7 @@
       });
     }
 
-    // fetch 1 podcast feed with a tight-ish timeout
+    // fetch 1 podcast feed with timeout
     async function fetchPodcastFeed(feed, ms = 3500) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), ms);
@@ -479,7 +482,6 @@
       }
     }
 
-    // PARALLEL, TOLERANT NPR LOADER
     async function loadPodcasts() {
       feedEl.innerHTML = '<div class="empty">Loading NPR podcasts…</div>';
 
@@ -489,7 +491,6 @@
 
       let episodes = results.flat().filter(Boolean);
 
-      // fallback to Planet Money if absolutely nothing
       if (!episodes.length) {
         const pm = await fetchPodcastFeed(NPR_FEEDS[0], 4000);
         episodes = pm;
