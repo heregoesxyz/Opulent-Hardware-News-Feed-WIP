@@ -238,6 +238,16 @@
       to { transform: translateY(-50%) rotate(360deg); }
     }
 
+    /* 👇 NEW: list that scrolls under the tape */
+    .podcast-list {
+      grid-column: 1 / -1;
+      margin-top: -150px;   /* pull list up under the sticky tape */
+      padding-top: 150px;   /* but keep spacing for content */
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+    }
+
     /* dark scrollbar */
     ::-webkit-scrollbar {
       width: 12px;
@@ -267,6 +277,9 @@
         grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
       }
       header { padding: .6rem .7rem .45rem; }
+      .podcast-list {
+        grid-template-columns: 1fr;
+      }
     }
     @media (max-width: 560px) {
       main { grid-template-columns: 1fr; }
@@ -421,6 +434,7 @@
               <div class="label">TYPE 4 TAPE</div>
             </div>
           </div>
+          <div class="podcast-list" id="podcastList"></div>
         `;
 
         renderPodcastList(items);
@@ -471,6 +485,7 @@
     }
 
     function renderPodcastList(items) {
+      const list = document.getElementById('podcastList');
       items.forEach(it => {
         const card = document.createElement('article');
         card.className = 'card';
@@ -486,7 +501,7 @@
           audio.src = it.audio;
           card.appendChild(audio);
         }
-        feedEl.appendChild(card);
+        list.appendChild(card);
       });
     }
 
