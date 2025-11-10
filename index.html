@@ -139,6 +139,16 @@
       color: var(--muted);
     }
 
+    /* make audio players behave in cards */
+    .card audio {
+      width: 100%;
+      max-width: 280px;
+      align-self: flex-start;
+      margin-top: .4rem;
+      border-radius: 999px;
+    }
+    audio { max-width: 100%; }
+
     /* fades */
     .fade-bottom {
       pointer-events: none;
@@ -275,9 +285,9 @@
       { name: "TSLA", url: "https://feeds.finance.yahoo.com/rss/2.0/headline?s=TSLA&region=US&lang=en-US" }
     ];
 
-    // sequential podcast sources
+    // NPR podcasts (small set)
     const NPR_FEEDS = [
-      { name: "NPR Planet Money",  url: "https://feeds.npr.org/510289/podcast.xml" },  // keep first as guaranteed
+      { name: "NPR Planet Money",  url: "https://feeds.npr.org/510289/podcast.xml" },
       { name: "NPR The Indicator", url: "https://feeds.npr.org/510325/podcast.xml" },
       { name: "NPR Consider This", url: "https://feeds.npr.org/510355/podcast.xml" },
       { name: "NPR Up First",      url: "https://feeds.npr.org/510318/podcast.xml" }
@@ -303,11 +313,11 @@
       ]);
     }
 
-    async function smartFetch(url) {
+    async function smartFetch(url, opt = {}) {
       for (const build of proxyBuilders) {
         const target = build(url);
         try {
-          const resp = await fetchWithTimeout(target, { timeout: 4000 });
+          const resp = await fetchWithTimeout(target, { timeout: 4000, ...opt });
           if (!resp.ok) throw new Error("bad status");
           if (target.includes("api.rss2json.com")) {
             return { type: "json", data: await resp.json() };
@@ -362,57 +372,69 @@
       renderList(all);
     }
 
-    // SEQUENTIAL, TOLERANT NPR LOADER
+    // fetch 1 podcast feed with a tight-ish timeout
+    async function fetchPodcastFeed(feed, ms = 3500) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), ms);
+      try {
+        const { type, data } = await smartFetch(feed.url, { signal: controller.signal });
+        let items = [];
+        if (type === "xml") {
+          const xml = new DOMParser().parseFromString(data, "application/xml");
+          items = [...xml.querySelectorAll("item")].map((item) => ({
+            source: feed.name,
+            title: item.querySelector("title")?.textContent?.trim() || "",
+            desc: clean(item.querySelector("description")?.textContent || ""),
+            link: item.querySelector("link")?.textContent?.trim() || "#",
+            date: item.querySelector("pubDate")?.textContent?.trim() || "",
+            audio: extractAudio(item),
+          }));
+        } else {
+          items = (data.items || []).map((ep) => ({
+            source: feed.name,
+            title: ep.title || "",
+            desc: clean(ep.description || ""),
+            link: ep.link || "#",
+            date: ep.pubDate || "",
+            audio: ep.enclosure?.link || ep.enclosure?.url || "",
+          }));
+        }
+        return items;
+      } catch (e) {
+        console.warn("podcast feed failed/slow:", feed.name, e);
+        return [];
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    // PARALLEL, TOLERANT NPR LOADER
     async function loadPodcasts() {
       feedEl.innerHTML = '<div class="empty">Loading NPR podcasts…</div>';
 
-      const episodes = [];
+      // fire all at once
+      const results = await Promise.all(
+        NPR_FEEDS.map((f) => fetchPodcastFeed(f, 3500))
+      );
 
-      for (const feed of NPR_FEEDS) {
-        try {
-          const { type, data } = await smartFetch(feed.url);
-          let items = [];
-          if (type === "xml") {
-            const xml = new DOMParser().parseFromString(data, "application/xml");
-            items = [...xml.querySelectorAll("item")].map((item) => ({
-              source: feed.name,
-              title: item.querySelector("title")?.textContent?.trim() || "",
-              desc: clean(item.querySelector("description")?.textContent || ""),
-              link: item.querySelector("link")?.textContent?.trim() || "#",
-              date: item.querySelector("pubDate")?.textContent?.trim() || "",
-              audio: extractAudio(item)
-            }));
-          } else {
-            items = (data.items || []).map((ep) => ({
-              source: feed.name,
-              title: ep.title || "",
-              desc: clean(ep.description || ""),
-              link: ep.link || "#",
-              date: ep.pubDate || "",
-              audio: ep.enclosure?.link || ep.enclosure?.url || ""
-            }));
-          }
-          episodes.push(...items);
-        } catch (e) {
-          console.warn("Podcast feed failed:", feed.name, e);
-          // continue to next feed
-        }
+      let episodes = results.flat().filter(Boolean);
+
+      // if we'd somehow got nothing, try the first feed alone
+      if (!episodes.length) {
+        const pm = await fetchPodcastFeed(NPR_FEEDS[0], 4000);
+        episodes = pm;
       }
 
-      // ensure we have at least something (Planet Money is first in array so we already tried it)
       if (!episodes.length) {
         feedEl.innerHTML = '<div class="empty">No podcast episodes found.</div>';
         return;
       }
 
-      // sort by date desc
-      episodes.sort((a,b) => new Date(b.date) - new Date(a.date));
-
-      // limit
-      const top = episodes.slice(0, 12);
+      episodes.sort((a, b) => new Date(b.date) - new Date(a.date));
+      episodes = episodes.slice(0, 12);
 
       feedEl.innerHTML = "";
-      top.forEach((ep) => {
+      episodes.forEach((ep) => {
         const card = document.createElement("article");
         card.className = "card";
         card.innerHTML = `
