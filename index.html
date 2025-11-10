@@ -12,7 +12,9 @@
       --text: #f2f6ff;
       --accent: #b6ff3b;
       --border: rgba(255,255,255,.04);
-      --header-h: 64px; /* approximate sticky header height */
+      --header-h: 64px;    /* sticky header height */
+      --tape-h: 150px;     /* actual tape height */
+      --tape-overlap: 20px;/* how much the stories should go under the tape */
     }
     * { box-sizing: border-box; }
     html, body {
@@ -190,7 +192,7 @@
       border-radius: 1rem;
       padding: 1rem 1.2rem;
       position: relative;
-      min-height: 150px;
+      min-height: var(--tape-h);
       overflow: hidden;
     }
     .tape-body .label {
@@ -238,11 +240,13 @@
       to { transform: translateY(-50%) rotate(360deg); }
     }
 
-    /* 👇 NEW: list that scrolls under the tape */
+    /* podcast list that scrolls UNDER the tape */
     .podcast-list {
       grid-column: 1 / -1;
-      margin-top: -150px;   /* pull list up under the sticky tape */
-      padding-top: 150px;   /* but keep spacing for content */
+      /* pull it up a bit more than tape height so it goes under */
+      margin-top: calc((var(--tape-h) * -1) + var(--tape-overlap));
+      /* add back space so content is not hidden */
+      padding-top: calc(var(--tape-h) - var(--tape-overlap));
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
       gap: 1rem;
@@ -277,9 +281,7 @@
         grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
       }
       header { padding: .6rem .7rem .45rem; }
-      .podcast-list {
-        grid-template-columns: 1fr;
-      }
+      .podcast-list { grid-template-columns: 1fr; }
     }
     @media (max-width: 560px) {
       main { grid-template-columns: 1fr; }
@@ -424,7 +426,7 @@
           }));
         }
 
-        // sticky tape at top
+        // sticky tape at top + container for list
         feedEl.innerHTML = `
           <div id="tapeDeck" class="tape-deck">
             <div class="tape-body">
