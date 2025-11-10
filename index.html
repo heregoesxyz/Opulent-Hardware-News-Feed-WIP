@@ -12,6 +12,7 @@
       --text: #f2f6ff;
       --accent: #b6ff3b;
       --border: rgba(255,255,255,.04);
+      --header-h: 120px;
     }
     * { box-sizing: border-box; }
     html, body {
@@ -25,12 +26,15 @@
       color-scheme: dark;
     }
 
+    /* fixed header */
     header {
-      position: sticky;
+      position: fixed;
       top: 0;
-      z-index: 20;
-      background: rgba(0,0,0,.6);
-      backdrop-filter: blur(16px);
+      left: 0;
+      right: 0;
+      z-index: 30;
+      background: radial-gradient(circle at top, rgba(0,0,0,.85) 0%, rgba(0,0,0,.55) 55%, rgba(0,0,0,.35) 100%);
+      backdrop-filter: blur(14px);
       border-bottom: 1px solid rgba(255,255,255,.03);
       padding: .75rem 1rem .5rem;
     }
@@ -76,10 +80,11 @@
       color: inherit;
     }
 
+    /* push content below fixed header */
     main {
       max-width: 1180px;
-      margin: 1rem auto 0;
-      padding: 0 1rem 7rem;
+      margin: 0 auto;
+      padding: calc(var(--header-h) + .75rem) 1rem 7rem;
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
       gap: 1rem;
@@ -124,6 +129,8 @@
       padding: 2rem 0;
       color: var(--muted);
     }
+
+    /* fades */
     .fade-bottom {
       pointer-events: none;
       position: fixed;
@@ -144,6 +151,17 @@
       background: linear-gradient(to left, #000 0%, rgba(0,0,0,0) 100%);
       z-index: 6;
     }
+    .fade-top {
+      pointer-events: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 80px;
+      background: linear-gradient(to bottom, #000 0%, rgba(0,0,0,0) 100%);
+      z-index: 25;
+    }
+
     .to-top {
       position: fixed;
       bottom: 1.1rem;
@@ -244,7 +262,7 @@
 
     @media (max-width: 900px) {
       main {
-        padding: 0 .5rem 6rem;
+        padding: calc(var(--header-h) + .5rem) .5rem 6rem;
         gap: .75rem;
         grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
       }
@@ -270,27 +288,24 @@
     </div>
   </header>
 
+  <div class="fade-top"></div>
   <main id="feed"></main>
-
   <div class="fade-bottom"></div>
   <div class="fade-right"></div>
   <button class="to-top" onclick="window.scrollTo({top:0,behavior:'smooth'})">Top</button>
 
   <script>
-    // feeds
     const NEWS_FEED = "https://feeds.bbci.co.uk/news/rss.xml";
     const MARKET_FEEDS = [
       { name: "AAPL", url: "https://feeds.finance.yahoo.com/rss/2.0/headline?s=AAPL&region=US&lang=en-US" },
       { name: "NVDA", url: "https://feeds.finance.yahoo.com/rss/2.0/headline?s=NVDA&region=US&lang=en-US" },
       { name: "TSLA", url: "https://feeds.finance.yahoo.com/rss/2.0/headline?s=TSLA&region=US&lang=en-US" }
     ];
-    // single, reliable podcast
     const PODCAST_FEED = {
       name: "NPR Planet Money",
       url: "https://feeds.npr.org/510289/podcast.xml"
     };
 
-    // we try: direct → allorigins → cors.isomorphic → rss2json (JSON)
     const proxyBuilders = [
       (url) => url,
       (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
@@ -302,7 +317,6 @@
     const tabsEl = document.getElementById('tabs');
     const filterInput = document.getElementById('filterInput');
 
-    // helper: fetch with timeout
     function fetchWithTimeout(resource, options = {}) {
       const { timeout = 4000 } = options;
       return Promise.race([
@@ -311,7 +325,6 @@
       ]);
     }
 
-    // helper: try many endpoints until one works
     async function smartFetch(url) {
       for (const build of proxyBuilders) {
         const target = build(url);
@@ -337,182 +350,4 @@
         const items = [...xml.querySelectorAll('item')].map(item => ({
           source: 'BBC News',
           title: item.querySelector('title')?.textContent?.trim() || '',
-          desc: clean(item.querySelector('description')?.textContent || ''),
-          link: item.querySelector('link')?.textContent?.trim() || '#',
-          date: item.querySelector('pubDate')?.textContent?.trim() || ''
-        }));
-        renderList(items);
-      } catch (e) {
-        console.error(e);
-        feedEl.innerHTML = '<div class="empty">Could not load BBC.</div>';
-      }
-    }
-
-    async function loadMarket() {
-      feedEl.innerHTML = '<div class="empty">Loading market headlines…</div>';
-      const all = [];
-      for (const mf of MARKET_FEEDS) {
-        try {
-          const { data } = await smartFetch(mf.url);
-          const xml = new DOMParser().parseFromString(data, "application/xml");
-          const items = [...xml.querySelectorAll('item')].map(item => ({
-            source: `Yahoo Finance — ${mf.name}`,
-            title: item.querySelector('title')?.textContent?.trim() || '',
-            desc: clean(item.querySelector('description')?.textContent || ''),
-            link: item.querySelector('link')?.textContent?.trim() || '#',
-            date: item.querySelector('pubDate')?.textContent?.trim() || ''
-          }));
-          all.push(...items);
-        } catch (e) {
-          console.warn('market feed failed', mf.name, e);
-        }
-      }
-      all.sort((a,b)=>new Date(b.date)-new Date(a.date));
-      renderList(all);
-    }
-
-    async function loadPodcasts() {
-      feedEl.innerHTML = '<div class="empty">Loading podcast…</div>';
-      try {
-        const { type, data } = await smartFetch(PODCAST_FEED.url);
-        let items = [];
-        if (type === "xml") {
-          const xml = new DOMParser().parseFromString(data, "application/xml");
-          items = [...xml.querySelectorAll('item')].slice(0,6).map(item => ({
-            source: PODCAST_FEED.name,
-            title: item.querySelector('title')?.textContent?.trim() || '',
-            desc: clean(item.querySelector('description')?.textContent || ''),
-            link: item.querySelector('link')?.textContent?.trim() || '#',
-            date: item.querySelector('pubDate')?.textContent?.trim() || '',
-            audio: extractAudio(item)
-          }));
-        } else {
-          items = (data.items || []).slice(0,6).map(ep => ({
-            source: PODCAST_FEED.name,
-            title: ep.title || '',
-            desc: clean(ep.description || ''),
-            link: ep.link || '#',
-            date: ep.pubDate || '',
-            audio: ep.enclosure?.link || ''
-          }));
-        }
-
-        // render cassette first
-        feedEl.innerHTML = `
-          <div id="tapeDeck" class="tape-deck">
-            <div class="tape-body">
-              <div class="reel left"></div>
-              <div class="reel right"></div>
-              <div class="window"></div>
-              <div class="label">PODCAST TRANSPORT</div>
-            </div>
-          </div>
-        `;
-
-        renderPodcastList(items);
-        attachAudioHandlers();
-      } catch (e) {
-        console.error(e);
-        feedEl.innerHTML = '<div class="empty">Podcast feed could not be loaded.</div>';
-      }
-    }
-
-    function extractAudio(item) {
-      const enclosure = item.querySelector('enclosure');
-      if (enclosure && enclosure.getAttribute('url')) return enclosure.getAttribute('url');
-      const media = item.getElementsByTagName('media:content')[0];
-      if (media && media.getAttribute('url')) return media.getAttribute('url');
-      return '';
-    }
-
-    function clean(str) {
-      return str.replace(/<!\[CDATA\[|\]\]>/g,'').replace(/<[^>]*>/g,'').trim();
-    }
-
-    function renderList(items) {
-      const q = filterInput.value.trim().toLowerCase();
-      const filtered = q
-        ? items.filter(it =>
-            it.title.toLowerCase().includes(q) ||
-            it.desc.toLowerCase().includes(q) ||
-            it.source.toLowerCase().includes(q)
-          )
-        : items;
-      if (!filtered.length) {
-        feedEl.innerHTML = '<div class="empty">No results.</div>';
-        return;
-      }
-      feedEl.innerHTML = '';
-      filtered.forEach(it => {
-        const card = document.createElement('article');
-        card.className = 'card';
-        card.innerHTML = `
-          <div class="source">${it.source}</div>
-          <a class="title-link" href="${it.link}" target="_blank" rel="noopener noreferrer">${it.title}</a>
-          <div class="desc">${it.desc}</div>
-          <div class="date">${it.date ? new Date(it.date).toLocaleString() : ''}</div>
-        `;
-        feedEl.appendChild(card);
-      });
-    }
-
-    function renderPodcastList(items) {
-      items.forEach(it => {
-        const card = document.createElement('article');
-        card.className = 'card';
-        card.innerHTML = `
-          <div class="source">${it.source}</div>
-          <a class="title-link" href="${it.link}" target="_blank" rel="noopener noreferrer">${it.title}</a>
-          <div class="desc">${it.desc}</div>
-          <div class="date">${it.date ? new Date(it.date).toLocaleString() : ''}</div>
-        `;
-        if (it.audio) {
-          const audio = document.createElement('audio');
-          audio.controls = true;
-          audio.src = it.audio;
-          card.appendChild(audio);
-        }
-        feedEl.appendChild(card);
-      });
-    }
-
-    function attachAudioHandlers() {
-      const tape = document.getElementById('tapeDeck');
-      const audios = feedEl.querySelectorAll('audio');
-
-      audios.forEach(a => {
-        a.addEventListener('play', () => {
-          // pause others
-          audios.forEach(other => {
-            if (other !== a) other.pause();
-          });
-          if (tape) tape.classList.add('playing');
-        });
-        a.addEventListener('pause', () => {
-          const anyPlaying = Array.from(audios).some(x => !x.paused);
-          if (!anyPlaying && tape) tape.classList.remove('playing');
-        });
-        a.addEventListener('ended', () => {
-          const anyPlaying = Array.from(audios).some(x => !x.paused);
-          if (!anyPlaying && tape) tape.classList.remove('playing');
-        });
-      });
-    }
-
-    // tab switching
-    tabsEl.addEventListener('click', (e) => {
-      const btn = e.target.closest('.tab-btn');
-      if (!btn) return;
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      const tab = btn.dataset.tab;
-      if (tab === 'news') loadNews();
-      if (tab === 'market') loadMarket();
-      if (tab === 'podcasts') loadPodcasts();
-    });
-
-    // initial load
-    loadNews();
-  </script>
-</body>
-</html>
+          desc: clean(item.querySelector('description')
