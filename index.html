@@ -12,9 +12,7 @@
       --text: #f2f6ff;
       --accent: #b6ff3b;
       --border: rgba(255,255,255,.04);
-      --header-h: 64px; /* sticky header height */
-      --tape-h: 155px;  /* tape height incl. breathing room */
-      --page-max: 1180px;
+      --header-h: 64px; /* approximate sticky header height */
     }
     * { box-sizing: border-box; }
     html, body {
@@ -31,7 +29,7 @@
     header {
       position: sticky;
       top: 0;
-      z-index: 80;
+      z-index: 40;
       background: rgba(0,0,0,.75);
       backdrop-filter: blur(16px);
       border-bottom: 1px solid rgba(255,255,255,.03);
@@ -80,18 +78,12 @@
     }
 
     main {
-      max-width: var(--page-max);
+      max-width: 1180px;
       margin: 1rem auto 0;
       padding: 0 1rem 7rem;
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
       gap: 1rem;
-      transition: padding-top .25s ease;
-    }
-
-    /* when podcasts are active we make room for the fixed tape */
-    body.podcast-mode main {
-      padding-top: calc(var(--tape-h) + 1rem);
     }
 
     .card {
@@ -164,7 +156,7 @@
       width: 100%;
       height: 48px;
       background: linear-gradient(to bottom, #000 0%, rgba(0,0,0,0) 100%);
-      z-index: 90;
+      z-index: 50;
     }
 
     .to-top {
@@ -184,19 +176,13 @@
       margin-top: .25rem;
     }
 
-    /* tape deck overlay (fixed under header) */
-    #tapeOverlay {
-      position: fixed;
+    /* tape deck (sticky under header) */
+    .tape-deck {
+      grid-column: 1 / -1;
+      margin-bottom: 1rem;
+      position: sticky;
       top: calc(var(--header-h) + 0.5rem);
-      left: 50%;
-      transform: translateX(-50%);
-      width: min(var(--page-max), 100vw - 1.5rem);
-      z-index: 70;
-      pointer-events: none; /* so scrollbars etc still work */
-      display: none; /* shown only in podcast mode */
-    }
-    body.podcast-mode #tapeOverlay {
-      display: block;
+      z-index: 30;
     }
     .tape-body {
       background: radial-gradient(circle at top, #2b3136 0%, #131619 70%);
@@ -206,7 +192,6 @@
       position: relative;
       min-height: 150px;
       overflow: hidden;
-      pointer-events: auto; /* so future buttons could work */
     }
     .tape-body .label {
       position: absolute;
@@ -234,7 +219,7 @@
     }
     .reel.left { left: 1.1rem; }
     .reel.right { right: 1.1rem; }
-    body.podcast-mode #tapeOverlay.playing .reel {
+    .tape-deck.playing .reel {
       animation-play-state: running;
     }
     .window {
@@ -281,9 +266,6 @@
         gap: .75rem;
         grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
       }
-      body.podcast-mode main {
-        padding-top: calc(var(--tape-h) + .5rem);
-      }
       header { padding: .6rem .7rem .45rem; }
     }
     @media (max-width: 560px) {
@@ -305,16 +287,6 @@
       <input id="filterInput" placeholder="Filter results by keyword…">
     </div>
   </header>
-
-  <!-- fixed tape overlay, only shown in podcast mode -->
-  <div id="tapeOverlay">
-    <div class="tape-body">
-      <div class="reel left"></div>
-      <div class="reel right"></div>
-      <div class="window"></div>
-      <div class="label">TYPE 4 TAPE</div>
-    </div>
-  </div>
 
   <main id="feed"></main>
 
@@ -345,7 +317,6 @@
     const feedEl = document.getElementById('feed');
     const tabsEl = document.getElementById('tabs');
     const filterInput = document.getElementById('filterInput');
-    const tapeOverlay = document.getElementById('tapeOverlay');
 
     function fetchWithTimeout(resource, options = {}) {
       const { timeout = 4000 } = options;
@@ -373,7 +344,6 @@
     }
 
     async function loadNews() {
-      document.body.classList.remove('podcast-mode');
       feedEl.innerHTML = '<div class="empty">Loading BBC news…</div>';
       try {
         const { data } = await smartFetch(NEWS_FEED);
@@ -393,7 +363,6 @@
     }
 
     async function loadMarket() {
-      document.body.classList.remove('podcast-mode');
       feedEl.innerHTML = '<div class="empty">Loading market headlines…</div>';
       const all = [];
       for (const mf of MARKET_FEEDS) {
@@ -417,7 +386,6 @@
     }
 
     async function loadPodcasts() {
-      document.body.classList.add('podcast-mode');
       feedEl.innerHTML = '<div class="empty">Loading podcast…</div>';
       try {
         const { type, data } = await smartFetch(PODCAST_FEED.url);
@@ -442,6 +410,19 @@
             audio: ep.enclosure?.link || ''
           }));
         }
+
+        // sticky tape at top
+        feedEl.innerHTML = `
+          <div id="tapeDeck" class="tape-deck">
+            <div class="tape-body">
+              <div class="reel left"></div>
+              <div class="reel right"></div>
+              <div class="window"></div>
+              <div class="label">TYPE 4 TAPE</div>
+            </div>
+          </div>
+        `;
+
         renderPodcastList(items);
         attachAudioHandlers();
       } catch (e) {
@@ -490,7 +471,6 @@
     }
 
     function renderPodcastList(items) {
-      feedEl.innerHTML = '';
       items.forEach(it => {
         const card = document.createElement('article');
         card.className = 'card';
@@ -511,6 +491,7 @@
     }
 
     function attachAudioHandlers() {
+      const tape = document.getElementById('tapeDeck');
       const audios = feedEl.querySelectorAll('audio');
 
       audios.forEach(a => {
@@ -518,15 +499,15 @@
           audios.forEach(other => {
             if (other !== a) other.pause();
           });
-          tapeOverlay.classList.add('playing');
+          if (tape) tape.classList.add('playing');
         });
         a.addEventListener('pause', () => {
           const any = Array.from(audios).some(x => !x.paused);
-          if (!any) tapeOverlay.classList.remove('playing');
+          if (!any && tape) tape.classList.remove('playing');
         });
         a.addEventListener('ended', () => {
           const any = Array.from(audios).some(x => !x.paused);
-          if (!any) tapeOverlay.classList.remove('playing');
+          if (!any && tape) tape.classList.remove('playing');
         });
       });
     }
